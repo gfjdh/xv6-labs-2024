@@ -1,0 +1,32 @@
+问题 1: 哪个函数调用了 syscall？
+答：usertrap() 函数调用了 syscall()。
+在 xv6 中，当用户程序通过 ecall 指令触发系统调用时，控制流会先进入 usertrap()，然后由 usertrap() 调用 syscall() 处理具体系统调用
+
+问题 2: p->trapframe->a7 的值及含义
+答：值： 0x00000007 (具体取决于当前系统调用)
+
+含义：寄存器 a7 存储了 系统调用号 (syscall number)。该值决定了内核执行哪个系统调用。
+例如：
+SYS_exec = 7 (执行程序)
+SYS_open = 15 (打开文件)
+SYS_write = 16 (写文件)
+
+问题 3: CPU 进入监管者模式前的模式
+答：用户模式 (User Mode)。
+（通过 p /x $sstatus 可看到 SPP 位为 0，表示 trap 前 CPU 处于用户模式）
+
+问题 4: 内核 panic 分析
+(a) 触发 panic 的汇编指令及对应寄存器
+答：指令： lw a5, 0(zero)（从地址 0 加载数据到寄存器 a5）
+寄存器： a5 对应变量 num（因为原始代码为 num = *(int *)0，编译器使用 a5 存储 num）
+
+(b) 内核崩溃原因
+答：内核崩溃是因为 访问了非法地址 0：地址 0 不在内核地址空间中
+scause=0xd 表示 监管者模式下的存储/AMO 缺页错误（Supervisor store/AMO page fault）
+内核试图访问未映射的地址 0，触发保护机制
+
+(c) 触发 panic 的进程信息
+答：进程名称： "init"
+进程 ID (pid)： 1
+xv6 启动后第一个用户进程是 init，其 pid 固定为 1
+
