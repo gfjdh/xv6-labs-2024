@@ -1,0 +1,8 @@
+哪些其他xv6系统调用可以使用这个共享页面加速？
+（1）getuid() / getgid()作用：获取进程的用户ID（UID）或组ID（GID）。
+（2）times()作用：获取进程的时间统计信息（如用户态/内核态运行时间）。
+（3）uname()作用：获取系统信息（如OS名称、版本等）。
+（4）sysinfo()（类似Linux）作用：获取系统资源信息（如空闲内存、进程数等）。
+
+kalloc.c中通过kint中的freerange-kfree/superkfree确定
+初始的kmem.kfreelist/superfreelist链表

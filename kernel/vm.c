@@ -488,9 +488,42 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
 
 
 #ifdef LAB_PGTBL
-void
-vmprint(pagetable_t pagetable) {
-  // your code here
+void vmprint_helper(pagetable_t pagetable, uint64 va, int level)
+{
+  char *dots;
+  switch (level)
+  {
+  case 0:
+    dots = " ..";
+    break;
+  case 1:
+    dots = " .. ..";
+    break;
+  case 2:
+    dots = " .. .. ..";
+    break;
+  default:
+    dots = "............";
+    break;
+  }
+  for (int i = 0; i < 512; i++)
+  {
+    pte_t pte = pagetable[i];
+    if (pte & PTE_V)
+    {
+      uint64 child = PTE2PA(pte);
+      uint64 child_va = va + (i << (9 * (2 - level) + 12));
+      printf("%s%p: pte %p pa %p\n", dots, (void *)child_va, (void *)pte, (void *)child);
+      if (level < 2)
+      {
+        vmprint_helper((pagetable_t)child, child_va, level + 1);        vmprint_helper((pagetable_t)child, child_va, level + 1);
+      }
+    }
+  }
+}
+void vmprint(pagetable_t pagetable) {
+    printf("page table %p\n", pagetable);
+    vmprint_helper(pagetable, 0, 0);
 }
 #endif
 
