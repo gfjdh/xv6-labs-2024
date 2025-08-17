@@ -16,9 +16,7 @@
 
  3. printf函数位于什么地址？
 在 main 的汇编代码中，printf 的调用指令是：
-  
   30: 68c000ef           jal   6bc <printf>
-  
 jal 指令跳转到偏移量 0x68c 加上当前 PC（程序计数器）。当前 PC 是 0x30，计算目标地址：
   偏移量 0x68c 是相对于 PC 的有符号立即数。
   目标地址 = PC + offset = 0x30 + 0x68c = 0x6BC。
@@ -27,7 +25,6 @@ printf 函数的地址是 0x6BC。
  4. 在main中jalr跳转到printf后，ra寄存器中的值是什么？
 在 main 中，使用的是 jal 指令（跳转并链接），不是 jalr。指令为：
   30: 68c000ef           jal   6bc <printf>
-  
 jal 指令的行为：
   将返回地址（下一条指令的地址）保存到 ra 寄存器。
   下一条指令是 exit(0) 的调用，位于地址 0x34（li a0, 0）。

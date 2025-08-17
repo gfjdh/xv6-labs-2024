@@ -162,6 +162,7 @@ printf(char *fmt, ...)
 void
 panic(char *s)
 {
+  backtrace();
   pr.locking = 0;
   printf("panic: ");
   printf("%s\n", s);
@@ -175,4 +176,15 @@ printfinit(void)
 {
   initlock(&pr.lock, "pr");
   pr.locking = 1;
+}
+
+void backtrace(void)
+{
+  uint64 fp = r_fp();
+  uint64 page = PGROUNDDOWN(fp);
+  while (PGROUNDDOWN(fp) == page)
+  {
+    printf("%p\n", (void *)(*(uint64 *)(fp - 8))); // 打印十六进制形式的帧指针
+    fp = *(uint64 *)(fp - 16);        // 将 fp 看作是指针时指向的地址
+  }
 }
