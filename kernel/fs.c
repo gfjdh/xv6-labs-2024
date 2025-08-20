@@ -83,8 +83,7 @@ balloc(uint dev)
     }
     brelse(bp);
   }
-  printf("balloc: out of blocks\n");
-  return 0;
+  panic("balloc: out of blocks");
 }
 
 // Free a disk block.
@@ -111,8 +110,8 @@ bfree(int dev, uint b)
 // its size, the number of links referring to it, and the
 // list of blocks holding the file's content.
 //
-// The inodes are laid out sequentially on disk at block
-// sb.inodestart. Each inode has a number, indicating its
+// The inodes are laid out sequentially on disk at
+// sb.startinode. Each inode has a number, indicating its
 // position on the disk.
 //
 // The kernel keeps a table of in-use inodes in memory
@@ -214,8 +213,7 @@ ialloc(uint dev, short type)
     }
     brelse(bp);
   }
-  printf("ialloc: no inodes\n");
-  return 0;
+  panic("ialloc: no inodes");
 }
 
 // Copy a modified in-memory inode to disk.
@@ -382,74 +380,144 @@ iunlockput(struct inode *ip)
 static uint
 bmap(struct inode *ip, uint bn)
 {
-  uint addr, *a;
-  struct buf *bp;
+    uint addr, *a;
+    struct buf *bp;
 
-  if(bn < NDIRECT){
-    if((addr = ip->addrs[bn]) == 0){
-      addr = balloc(ip->dev);
-      if(addr == 0)
-        return 0;
-      ip->addrs[bn] = addr;
+    if (bn < NDIRECT) {
+        if ((addr = ip->addrs[bn]) == 0) {
+            addr = balloc(ip->dev);
+            if (addr == 0) {
+                return 0;
+            }
+            ip->addrs[bn] = addr;
+        }
+        return addr;
     }
-    return addr;
-  }
-  bn -= NDIRECT;
 
-  if(bn < NINDIRECT){
-    // Load indirect block, allocating if necessary.
-    if((addr = ip->addrs[NDIRECT]) == 0){
-      addr = balloc(ip->dev);
-      if(addr == 0)
-        return 0;
-      ip->addrs[NDIRECT] = addr;
-    }
-    bp = bread(ip->dev, addr);
-    a = (uint*)bp->data;
-    if((addr = a[bn]) == 0){
-      addr = balloc(ip->dev);
-      if(addr){
-        a[bn] = addr;
-        log_write(bp);
-      }
-    }
-    brelse(bp);
-    return addr;
-  }
+    bn -= NDIRECT; 
+    if (bn < NINDIRECT) {
+        if ((addr = ip->addrs[NDIRECT]) == 0) {
+            addr = balloc(ip->dev);
+            if (addr == 0) {
+                return 0;
+            }
+            ip->addrs[NDIRECT] = addr;
+        }
 
-  panic("bmap: out of range");
+        bp = bread(ip->dev, addr); 
+        a = (uint *)bp->data;
+        if ((addr = a[bn]) == 0) {
+            addr = balloc(ip->dev);
+            if (addr == 0) {
+                brelse(bp);
+                return 0;
+            }
+            a[bn] = addr;
+            log_write(bp);
+        }
+        brelse(bp);
+        return addr;
+    }
+
+    bn -= NINDIRECT;
+    if (bn < NINDIRECT * NINDIRECT) {
+
+        uint iL1 = bn / NINDIRECT; // 一级索引
+        uint iL2 = bn % NINDIRECT; // 二级索引
+
+        if ((addr = ip->addrs[NDIRECT + 1]) == 0) {
+            addr = balloc(ip->dev);
+            if (addr == 0) {
+                return 0;
+            }
+            ip->addrs[NDIRECT + 1] = addr;
+        }
+        bp = bread(ip->dev, addr); 
+        a = (uint *)bp->data;
+        if ((addr = a[iL1]) == 0) {
+            // 如果对应的二级索引目录不存在，分配一个新的物理块，并将其记录在一级索引目录中
+            addr = balloc(ip->dev);
+            if (addr == 0) {
+                brelse(bp);
+                return 0;
+            }
+            a[iL1] = addr;
+            log_write(bp);
+        }
+        brelse(bp); 
+
+        bp = bread(ip->dev, addr);
+        a = (uint *)bp->data;
+        if ((addr = a[iL2]) == 0) {
+            // 如果对应的物理块号不存在，分配一个新的物理块，并将其记录在二级索引目录中
+            addr = balloc(ip->dev);
+            if (addr == 0) {
+                brelse(bp);
+                return 0;
+            }
+            a[iL2] = addr;
+            log_write(bp);
+        }
+        brelse(bp);
+        return addr;
+    }
+
+    panic("bmap: out of range");
 }
 
 // Truncate inode (discard contents).
 // Caller must hold ip->lock.
-void
-itrunc(struct inode *ip)
+void itrunc(struct inode *ip)
 {
-  int i, j;
-  struct buf *bp;
-  uint *a;
+    int i, j;
+    struct buf *bp;
+    uint *a;
 
-  for(i = 0; i < NDIRECT; i++){
-    if(ip->addrs[i]){
-      bfree(ip->dev, ip->addrs[i]);
-      ip->addrs[i] = 0;
+    for (i = 0; i < NDIRECT; i++) {
+        if (ip->addrs[i]) {
+            bfree(ip->dev, ip->addrs[i]);
+            ip->addrs[i] = 0;
+        }
     }
-  }
 
-  if(ip->addrs[NDIRECT]){
-    bp = bread(ip->dev, ip->addrs[NDIRECT]);
-    a = (uint*)bp->data;
-    for(j = 0; j < NINDIRECT; j++){
-      if(a[j])
-        bfree(ip->dev, a[j]);
+    // 释放一级索引目录对应的物理块
+    if (ip->addrs[NDIRECT]) {
+        bp = bread(ip->dev, ip->addrs[NDIRECT]);
+        a = (uint *)bp->data;
+        for (j = 0; j < NINDIRECT; j++) {
+            if (a[j])
+                bfree(ip->dev, a[j]);
+        }
+        brelse(bp);
+        bfree(ip->dev, ip->addrs[NDIRECT]);
+        ip->addrs[NDIRECT] = 0;
     }
-    brelse(bp);
-    bfree(ip->dev, ip->addrs[NDIRECT]);
-    ip->addrs[NDIRECT] = 0;
-  }
 
-  ip->size = 0;
-  iupdate(ip);
+    struct buf *bpL2;
+    uint *b;
+    int k;
+    // 释放二级索引目录对应的物理块
+    if (ip->addrs[NDIRECT + 1]) {
+        bp = bread(ip->dev, ip->addrs[NDIRECT + 1]);
+        a = (uint *)bp->data;
+        for (j = 0; j < NINDIRECT; j++) {
+            if (a[j]) {
+                bpL2 = bread(ip->dev, a[j]);
+                b = (uint *)bpL2->data;
+                for (k = 0; k < NINDIRECT; k++) {
+                    if (b[k])
+                        bfree(ip->dev, b[k]);
+                }
+                brelse(bpL2);
+                bfree(ip->dev, a[j]);
+            }
+        }
+        brelse(bp);
+        bfree(ip->dev, ip->addrs[NDIRECT + 1]);
+        ip->addrs[NDIRECT + 1] = 0;
+    }
+    ip->size = 0;
+    iupdate(ip);
 }
 
 // Copy stat information from inode.
@@ -480,10 +548,7 @@ readi(struct inode *ip, int user_dst, uint64 dst, uint off, uint n)
     n = ip->size - off;
 
   for(tot=0; tot<n; tot+=m, off+=m, dst+=m){
-    uint addr = bmap(ip, off/BSIZE);
-    if(addr == 0)
-      break;
-    bp = bread(ip->dev, addr);
+    bp = bread(ip->dev, bmap(ip, off/BSIZE));
     m = min(n - tot, BSIZE - off%BSIZE);
     if(either_copyout(user_dst, dst, bp->data + (off % BSIZE), m) == -1) {
       brelse(bp);
@@ -514,10 +579,7 @@ writei(struct inode *ip, int user_src, uint64 src, uint off, uint n)
     return -1;
 
   for(tot=0; tot<n; tot+=m, off+=m, src+=m){
-    uint addr = bmap(ip, off/BSIZE);
-    if(addr == 0)
-      break;
-    bp = bread(ip->dev, addr);
+    bp = bread(ip->dev, bmap(ip, off/BSIZE));
     m = min(n - tot, BSIZE - off%BSIZE);
     if(either_copyin(bp->data + (off % BSIZE), user_src, src, m) == -1) {
       brelse(bp);
@@ -600,7 +662,7 @@ dirlink(struct inode *dp, char *name, uint inum)
   strncpy(de.name, name, DIRSIZ);
   de.inum = inum;
   if(writei(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
-    return -1;
+    panic("dirlink");
 
   return 0;
 }
